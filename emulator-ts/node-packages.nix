@@ -13,6 +13,15 @@ let
         sha512 = "DJR/VvkAvSZW9bTouZue2sSxDwdTN92uHjqeKVm+0dAqdfNykRzQ95tay8aXMBAAPpUiq4Qcug2L7neoRh2Egw==";
       };
     };
+    "fp-ts-2.12.3" = {
+      name = "fp-ts";
+      packageName = "fp-ts";
+      version = "2.12.3";
+      src = fetchurl {
+        url = "https://registry.npmjs.org/fp-ts/-/fp-ts-2.12.3.tgz";
+        sha512 = "8m0XvW8kZbfnJOA4NvSVXu95mLbPf4LQGwQyqVukIYS4KzSNJiyKSmuZUmbVHteUi6MGkAJGPb0goPZqI+Tsqg==";
+      };
+    };
     "solid-js-1.5.7" = {
       name = "solid-js";
       packageName = "solid-js";
@@ -39,6 +48,7 @@ let
     src = ./.;
     dependencies = [
       sources."csstype-3.1.1"
+      sources."fp-ts-2.12.3"
       sources."solid-js-1.5.7"
       sources."ts-pattern-4.0.5"
     ];
