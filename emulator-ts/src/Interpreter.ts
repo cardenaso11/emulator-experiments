@@ -112,9 +112,22 @@ export function combine2Nibbles (nibbles: [UInt4, UInt4]): UInt8 {
 export function decodeOpCode(encoded: UInt16): OpCode | undefined {
   
   return match(split16BitBy4(encoded))
-    .with([0x0, 0x0, 0xE, 0x0], () => <OpCode>{type: "CLS"})
-    .with([0x0, 0x0, 0xE, 0xE], () => <OpCode>{type: "RET"})
-    .with([0x1, P._, P._, P._], ([a, b, c]) => <OpCode>{type: 'JP', addr: combine3Nibbles([a,b,c])})
+    .with([0x0, 0x0, 0xE, 0x0], ()          => <OpCode>{type: 'CLS'})
+    .with([0x0, 0x0, 0xE, 0xE], ()          => <OpCode>{type: 'RET'})
+    .with([0x0, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'SYS'  , addr: combine3Nibbles([a,b,c])}) // unused instruction
+    .with([0x1, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'JP'   , addr: combine3Nibbles([a,b,c])})
+    .with([0x2, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'CALL' , addr: combine3Nibbles([a,b,c])})
+    .with([0x3, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'SE_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x4, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'SNE_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x5, P._, P._, 0x0], ([x,  y]) => <OpCode>{type: 'SE'   , vx: x.toString() , vy: y.toString()})
+    .with([0x6, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'LD_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x7, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'ADD_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x8, P._, P._, 0x0], ([x,  y]) => <OpCode>{type: 'LD'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x1], ([x,  y]) => <OpCode>{type: 'OR'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x2], ([x,  y]) => <OpCode>{type: 'AND'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x3], ([x,  y]) => <OpCode>{type: 'XOR'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x4], ([x,  y]) => <OpCode>{type: 'ADD'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x5], ([x,  y]) => <OpCode>{type: 'SUB'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x6], ([x,  y]) => <OpCode>{type: 'SHR'   , vx: x.toString() , vy: y.toString()})
     .otherwise(()=>undefined)
-    
 };
