@@ -160,3 +160,9 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
     .with([0xF, P._, 0x6, 0x5], ([,x    ]) => <OpCode>{type: 'LD_recall', vx: x.toString()})
     .otherwise(()=>undefined)
 };
+// not sure how good javascript immutability performance is, this is likely to need a second draft
+export function executeOpCode(op: OpCode, cpu: CPU): CPU {
+    return match(op)
+      .with({type: 'CLS'}, () => <CPU>{...cpu, frameBuf: [[]]})
+      .otherwise(()=>cpu) //TODO: make this explicitly partial instead of just a nop
+}
