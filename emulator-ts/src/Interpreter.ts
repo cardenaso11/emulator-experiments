@@ -90,14 +90,17 @@ export function fromMaybe<T>(def: T, x?: T): T {
   if (x === undefined) { return def; } else { return x; }
 }
 
-export function split16BitBy4 (encoded: UInt16): [UInt4, UInt4, UInt4, UInt4] {
+export function split16BitBy4 (encoded: UInt16): UInt4[] {
   const firstNibble: UInt4 = (encoded & 0xF000) >> 12;
   const secondNibble: UInt4 = (encoded & 0x0F00) >> 8;
   const thirdNibble: UInt4 = (encoded & 0x00F0) >> 4;
   const fourthNibble: UInt4 = (encoded & 0x000F) >> 0;
   return [firstNibble, secondNibble, thirdNibble, fourthNibble];
 }
-
+//TODO: figure out if i can write a generic version of combineNNibbles
+//TODO: javascript number semantics are making me really nervous,
+// investigate alternatives. If theres no good fixed point ts libraries,
+// then i guess BigInt is probably supported anywhere webassembly is?
 export function combine4Nibbles (nibbles: [UInt4, UInt4, UInt4, UInt4]): UInt16 {
   return nibbles[0] << 12 | nibbles[1] << 8 | nibbles[2] << 4 | nibbles[3] << 0;
 }
@@ -114,37 +117,37 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
   return match(split16BitBy4(encoded))
     .with([0x0, 0x0, 0xE, 0x0], ()          => <OpCode>{type: 'CLS'})
     .with([0x0, 0x0, 0xE, 0xE], ()          => <OpCode>{type: 'RET'})
-    .with([0x0, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'SYS'  , addr: combine3Nibbles([a,b,c])}) // unused instruction
-    .with([0x1, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'JP'   , addr: combine3Nibbles([a,b,c])})
-    .with([0x2, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'CALL' , addr: combine3Nibbles([a,b,c])})
-    .with([0x3, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'SE_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
-    .with([0x4, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'SNE_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
-    .with([0x5, P._, P._, 0x0], ([x,  y]) => <OpCode>{type: 'SE'   , vx: x.toString() , vy: y.toString()})
-    .with([0x6, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'LD_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
-    .with([0x7, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'ADD_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
-    .with([0x8, P._, P._, 0x0], ([x,  y]) => <OpCode>{type: 'LD'   , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x1], ([x,  y]) => <OpCode>{type: 'OR'   , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x2], ([x,  y]) => <OpCode>{type: 'AND'  , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x3], ([x,  y]) => <OpCode>{type: 'XOR'  , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x4], ([x,  y]) => <OpCode>{type: 'ADD'  , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x5], ([x,  y]) => <OpCode>{type: 'SUB'  , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0x6], ([x,  y]) => <OpCode>{type: 'SHR'  , vx: x.toString() , vy: y.toString()}) // vy is ignored
-    .with([0x8, P._, P._, 0x7], ([x,  y]) => <OpCode>{type: 'SUBN' , vx: x.toString() , vy: y.toString()})
-    .with([0x8, P._, P._, 0xE], ([x,  y]) => <OpCode>{type: 'SHL'  , vx: x.toString() , vy: y.toString()}) // vy is ignored
-    .with([0x9, P._, P._, 0x0], ([x,  y]) => <OpCode>{type: 'SNE'  , vx: x.toString() , vy: y.toString()})
-    .with([0xA, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'LD_i' , addr: combine3Nibbles([a,b,c])})
-    .with([0xB, P._, P._, P._], ([a,b,c]) => <OpCode>{type: 'JP_v0', addr: combine3Nibbles([a,b,c])})
-    .with([0xC, P._, P._, P._], ([x,b,c]) => <OpCode>{type: 'RND'  , vx: x.toString() , byte: combine2Nibbles([b,c])})
-    .with([0xD, P._, P._, P._], ([x,y,c]) => <OpCode>{type: 'DRW'  , vx: x.toString() , vy: y.toString(), nibble: c})
-    .with([0xE, P._, 0x9, 0xE], ([x    ]) => <OpCode>{type: 'SKP'  , vx: x.toString()})
-    .with([0xE, P._, 0xA, 0x1], ([x    ]) => <OpCode>{type: 'SKNP' , vx: x.toString()})
-    .with([0xF, P._, 0x0, 0x7], ([x    ]) => <OpCode>{type: 'LD_vx_dt', vx: x.toString()})
-    .with([0xF, P._, 0x1, 0x5], ([x    ]) => <OpCode>{type: 'LD_dt_vx', vx: x.toString()})
-    .with([0xF, P._, 0x1, 0x8], ([x    ]) => <OpCode>{type: 'LD_st_vx', vx: x.toString()})
-    .with([0xF, P._, 0x1, 0xE], ([x    ]) => <OpCode>{type: 'ADD_i_vx', vx: x.toString()})
-    .with([0xF, P._, 0x2, 0x9], ([x    ]) => <OpCode>{type: 'LD_f', vx: x.toString()})
-    .with([0xF, P._, 0x3, 0x3], ([x    ]) => <OpCode>{type: 'LD_bcd', vx: x.toString()})
-    .with([0xF, P._, 0x5, 0x5], ([x    ]) => <OpCode>{type: 'LD_save', vx: x.toString()})
-    .with([0xF, P._, 0x6, 0x5], ([x    ]) => <OpCode>{type: 'LD_recall', vx: x.toString()})
+    .with([0x0, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'SYS'  , addr: combine3Nibbles([a,b,c])}) // unused instruction
+    .with([0x1, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'JP'   , addr: combine3Nibbles([a,b,c])})
+    .with([0x2, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'CALL' , addr: combine3Nibbles([a,b,c])})
+    .with([0x3, P._, P._, P._], ([,x,b,c]) => <OpCode>{type: 'SE_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x4, P._, P._, P._], ([,x,b,c]) => <OpCode>{type: 'SNE_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x5, P._, P._, 0x0], ([,x,  y]) => <OpCode>{type: 'SE'   , vx: x.toString() , vy: y.toString()})
+    .with([0x6, P._, P._, P._], ([,x,b,c]) => <OpCode>{type: 'LD_b' , vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x7, P._, P._, P._], ([,x,b,c]) => <OpCode>{type: 'ADD_b', vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0x8, P._, P._, 0x0], ([,x,  y]) => <OpCode>{type: 'LD'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x1], ([,x,  y]) => <OpCode>{type: 'OR'   , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x2], ([,x,  y]) => <OpCode>{type: 'AND'  , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x3], ([,x,  y]) => <OpCode>{type: 'XOR'  , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x4], ([,x,  y]) => <OpCode>{type: 'ADD'  , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x5], ([,x,  y]) => <OpCode>{type: 'SUB'  , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0x6], ([,x,  y]) => <OpCode>{type: 'SHR'  , vx: x.toString() , vy: y.toString()}) // vy is ignored
+    .with([0x8, P._, P._, 0x7], ([,x,  y]) => <OpCode>{type: 'SUBN' , vx: x.toString() , vy: y.toString()})
+    .with([0x8, P._, P._, 0xE], ([,x,  y]) => <OpCode>{type: 'SHL'  , vx: x.toString() , vy: y.toString()}) // vy is ignored
+    .with([0x9, P._, P._, 0x0], ([,x,  y]) => <OpCode>{type: 'SNE'  , vx: x.toString() , vy: y.toString()})
+    .with([0xA, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'LD_i' , addr: combine3Nibbles([a,b,c])})
+    .with([0xB, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'JP_v0', addr: combine3Nibbles([a,b,c])})
+    .with([0xC, P._, P._, P._], ([,x,b,c]) => <OpCode>{type: 'RND'  , vx: x.toString() , byte: combine2Nibbles([b,c])})
+    .with([0xD, P._, P._, P._], ([,x,y,c]) => <OpCode>{type: 'DRW'  , vx: x.toString() , vy: y.toString(), nibble: c})
+    .with([0xE, P._, 0x9, 0xE], ([,x    ]) => <OpCode>{type: 'SKP'  , vx: x.toString()})
+    .with([0xE, P._, 0xA, 0x1], ([,x    ]) => <OpCode>{type: 'SKNP' , vx: x.toString()})
+    .with([0xF, P._, 0x0, 0x7], ([,x    ]) => <OpCode>{type: 'LD_vx_dt', vx: x.toString()})
+    .with([0xF, P._, 0x1, 0x5], ([,x    ]) => <OpCode>{type: 'LD_dt_vx', vx: x.toString()})
+    .with([0xF, P._, 0x1, 0x8], ([,x    ]) => <OpCode>{type: 'LD_st_vx', vx: x.toString()})
+    .with([0xF, P._, 0x1, 0xE], ([,x    ]) => <OpCode>{type: 'ADD_i_vx', vx: x.toString()})
+    .with([0xF, P._, 0x2, 0x9], ([,x    ]) => <OpCode>{type: 'LD_f', vx: x.toString()})
+    .with([0xF, P._, 0x3, 0x3], ([,x    ]) => <OpCode>{type: 'LD_bcd', vx: x.toString()})
+    .with([0xF, P._, 0x5, 0x5], ([,x    ]) => <OpCode>{type: 'LD_save', vx: x.toString()})
+    .with([0xF, P._, 0x6, 0x5], ([,x    ]) => <OpCode>{type: 'LD_recall', vx: x.toString()})
     .otherwise(()=>undefined)
 };
