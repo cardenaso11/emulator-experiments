@@ -4,26 +4,35 @@ export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
 export type UInt12 = number; // 8 bit uint, unenforced
 export type UInt16 = number; // 16 bit uint, unenforced
-export type Memory = [[UInt8]]; // not enforced for now
-export type FrameBuffer = [[UInt8]]; // 64 x 32
+export type Memory = UInt8[][]; // not enforced for now
+export type FrameBuffer = UInt8[][]; // 64 x 32
 //TODO: change to Uint8Array
 
 type Hz = number;
 
-type Registers = {
-  type: "Registers" 
+export class Registers {
   regI: UInt16;
   regST: UInt8;
   regDT: UInt8;
   regSP: UInt8;
   regPC: UInt16;
+  constructor( regI: UInt16
+             , regST: UInt8
+             , regDT: UInt8
+             , regSP: UInt8
+             , regPC: UInt16) {
+    this.regI = regI;
+    this.regST = regST;
+    this.regDT = regDT;
+    this.regSP = regSP;
+    this.regPC = regPC;
+  }
 }
 
-type CPU = {
+export type CPU = {
   type: "CPU";
   regs: Registers;
   mem: Memory;
-  clock: Hz;
   frameBuf: FrameBuffer;
 }
 
