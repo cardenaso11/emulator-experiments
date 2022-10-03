@@ -16,11 +16,11 @@ export class Registers {
   regDT: UInt8;
   regSP: UInt8;
   regPC: UInt16;
-  constructor( regI: UInt16
-             , regST: UInt8
-             , regDT: UInt8
-             , regSP: UInt8
-             , regPC: UInt16) {
+  constructor( regI: UInt16 = 0x0
+             , regST: UInt8 = 0x0
+             , regDT: UInt8 = 0x0
+             , regSP: UInt8 = 0x0
+             , regPC: UInt16 = 0x200) {
     this.regI = regI;
     this.regST = regST;
     this.regDT = regDT;
