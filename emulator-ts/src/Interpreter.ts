@@ -4,9 +4,10 @@ export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
 export type UInt12 = number; // 8 bit uint, unenforced
 export type UInt16 = number; // 16 bit uint, unenforced
-export type Memory = UInt8[][]; // not enforced for now
-export type FrameBuffer = UInt8[][]; // 64 x 32
-//TODO: change to Uint8Array
+export type Memory = Uint8Array; //unenforced, 4KB
+export type FrameBuffer = BigUint64Array; // 64 x 32, so each uint64 represents a whole row
+export const memoryLength = 0xFFF
+export const frameBufferHeight = 32;
 
 type Hz = number;
 
@@ -36,8 +37,8 @@ export class CPU {
   frameBuf: FrameBuffer;
   constructor
     ( regs: Registers = new Registers()
-    , mem: Memory = [[]]
-    , frameBuf: FrameBuffer = [[]]) {
+    , mem: Memory = new Uint8Array(memoryLength)
+    , frameBuf: FrameBuffer = new BigUint64Array(frameBufferHeight)) {
       this.regs = regs;
       this.mem = mem;
       this.frameBuf = frameBuf;
@@ -171,6 +172,6 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
     return match(op)
-      .with({type: 'CLS'}, () => <CPU>{...cpu, frameBuf: [[]]})
+      .with({type: 'CLS'}, () => <CPU>{...cpu, frameBuf: new BigUint64Array(frameBufferHeight)})
       .otherwise(()=>cpu) //TODO: make this explicitly partial instead of just a nop
 }
