@@ -1,4 +1,8 @@
 import { match, P} from 'ts-pattern'
+import { Lens } from 'monocle-ts';
+import * as L from 'monocle-ts/Lens';
+import { increment, pipe, } from 'fp-ts/lib/function';
+import { i } from 'vitest/dist/index-6e18a03a';
 
 export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
@@ -11,38 +15,34 @@ export const frameBufferHeight = 32;
 
 type Hz = number;
 
-export class Registers {
-  regI: UInt16;
-  regST: UInt8;
-  regDT: UInt8;
-  regSP: UInt8;
-  regPC: UInt16;
-  constructor
-    ( regI: UInt16 = 0x0
-    , regST: UInt8 = 0x0
-    , regDT: UInt8 = 0x0
-    , regSP: UInt8 = 0x0
-    , regPC: UInt16 = 0x200) {
-    this.regI = regI;
-    this.regST = regST;
-    this.regDT = regDT;
-    this.regSP = regSP;
-    this.regPC = regPC;
-  }
+export function newRegisters
+  ( i: UInt16 = 0
+  , st: UInt8 = 0
+  , dt: UInt8 = 0
+  , sp: UInt8 = 0 // for now SP will be a memory ptr, but itd be worht it to make stack separate from memory
+  , pc: UInt16 = 0x200) {
+    return {i, st, dt, sp, pc};
+};
+
+export type Registers = {
+  i: UInt16;
+  st: UInt8;
+  dt: UInt8;
+  sp: UInt8;
+  pc: UInt16;
 }
 
-export class CPU {
+export function newCPU
+    ( regs: Registers = newRegisters()
+    , mem: Memory = new Uint8Array(memoryLength)
+    , frameBuf: FrameBuffer = new BigUint64Array(frameBufferHeight)): CPU {
+  return {regs, mem, frameBuf};
+}
+
+export type CPU = {
   regs: Registers;
   mem: Memory;
   frameBuf: FrameBuffer;
-  constructor
-    ( regs: Registers = new Registers()
-    , mem: Memory = new Uint8Array(memoryLength)
-    , frameBuf: FrameBuffer = new BigUint64Array(frameBufferHeight)) {
-      this.regs = regs;
-      this.mem = mem;
-      this.frameBuf = frameBuf;
-    }
 }
 
 export type Vx = // V0 - VF
@@ -106,6 +106,10 @@ export type OpCode =
 
 export function fromMaybe<T>(def: T, x?: T): T {
   if (x === undefined) { return def; } else { return x; }
+};
+
+export function fromJust<T>(x?: T): T {
+  return x!;
 }
 
 export function split16BitBy4 (encoded: UInt16): UInt4[] {
@@ -114,6 +118,12 @@ export function split16BitBy4 (encoded: UInt16): UInt4[] {
   const thirdNibble: UInt4 = (encoded & 0x00F0) >> 4;
   const fourthNibble: UInt4 = (encoded & 0x000F) >> 0;
   return [firstNibble, secondNibble, thirdNibble, fourthNibble];
+}
+
+export function split16BitBy2 (encoded: UInt16): UInt8[] {
+  const firstByte: UInt8 =  (encoded & 0xFF00) >> 8;
+  const secondByte: UInt8 = (encoded & 0x00FF) >> 0;
+  return [firstByte, secondByte];
 }
 //TODO: figure out if i can write a generic version of combineNNibbles
 //TODO: javascript number semantics are making me really nervous,
@@ -130,11 +140,14 @@ export function combine2Nibbles (nibbles: [UInt4, UInt4]): UInt8 {
   return nibbles[0] << 4 | nibbles[1] << 0;
 }
 
+export const combine2Bytes: (bytes: [UInt8, UInt8]) => UInt16 = (bytes) =>
+  (bytes[0] << 8) | (bytes[1] << 0);
+
 export function decodeOpCode(encoded: UInt16): OpCode | undefined {
   
   return match(split16BitBy4(encoded))
-    .with([0x0, 0x0, 0xE, 0x0], ()          => <OpCode>{type: 'CLS'})
-    .with([0x0, 0x0, 0xE, 0xE], ()          => <OpCode>{type: 'RET'})
+    .with([0x0, 0x0, 0xE, 0x0], ()         => <OpCode>{type: 'CLS'})
+    .with([0x0, 0x0, 0xE, 0xE], ()         => <OpCode>{type: 'RET'})
     .with([0x0, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'SYS'  , addr: combine3Nibbles([a,b,c])}) // unused instruction
     .with([0x1, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'JP'   , addr: combine3Nibbles([a,b,c])})
     .with([0x2, P._, P._, P._], ([,a,b,c]) => <OpCode>{type: 'CALL' , addr: combine3Nibbles([a,b,c])})
@@ -169,9 +182,83 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
     .with([0xF, P._, 0x6, 0x5], ([,x    ]) => <OpCode>{type: 'LD_recall', vx: x.toString()})
     .otherwise(()=>undefined)
 };
+
+//TODO: would be cool to make these generic, but typescript's type system is giving me trouble
+// maybe try ArrayLike instead? 
+//export function copyAndSet<T, S extends RelativeIndexable<T>>(array: S, val: [T], loc: number): S {
+//  new S()
+//};
+export function copyAndSet8(loc: number, vals: UInt8[], array: Uint8Array): Uint8Array {
+  let newArray = new Uint8Array(array);
+  newArray.set(vals, loc);
+  return newArray;
+};
+
+export function copyAndSet64(loc: number, vals: bigint[], array: BigUint64Array) : BigUint64Array {
+  let newArray = new BigUint64Array(array);
+  newArray.set(vals, loc);
+  return newArray;
+};
+
+export function getPC(cpu: CPU): Registers['pc'] {
+  return Lens.fromPath<CPU>()(['regs', 'pc']).get(cpu);
+};
+
+export const incrementPC : (cpu: CPU) => CPU =
+  Lens.fromPath<CPU>()(['regs', 'pc']).modify((pc)=>pc+2);
+    //return pipe(
+    //L.id<CPU>(),
+    //L.prop('regs'),
+    //L.prop('pc'),
+    //L.modify((pc)=>pc+2)
+    //)(s);
+
+export const incrementSP: (cpu: CPU) => CPU =
+    Lens.fromPath<CPU>()(['regs', 'sp']).modify(
+      (sp) => sp+2);
+export const decrementSP: (cpu: CPU) => CPU =
+    Lens.fromPath<CPU>()(['regs', 'sp']).modify(
+      (sp) => sp-2);
+// TODO: change 2 to 1
+// the spec officially says to increment SP by 1
+// however pointers are 12bit = 2bytes wide
+// so i think longterm solution is stack gets its own separate memory
+// in the meantime however it'll just be a pointer into memory, to make things simpler
+
+export const push16: (val: UInt16) => (cpu: CPU) => CPU = (val) =>(cpu)=>
+  pipe( cpu
+      , Lens.fromProp<CPU>()('mem').modify( (mem) =>
+          copyAndSet8(cpu.regs.sp, split16BitBy2(val), mem))
+      , incrementSP
+      );
+
+export const pop16: (cpu: CPU) => [CPU, UInt16] = (cpu)=>
+  [ decrementSP(cpu)
+  , combine2Bytes( [ cpu.mem.at(cpu.regs.sp)!
+                 , cpu.mem.at(cpu.regs.sp+1)! ]) // we dont clear stack for perf
+  ]
+
+export const jump: (addr: UInt12) => (cpu: CPU) => CPU = (addr) => (cpu) =>
+  Lens.fromPath<CPU>()(['regs', 'pc']).modify(()=>addr)(cpu);
+
+export const call: (addr: UInt12) => (cpu: CPU) => CPU = (addr) => (cpu) =>
+  pipe (cpu, push16(addr), incrementSP);
+
+export const ret: (cpu: CPU) => CPU = (cpu) => {
+  const [newCpu, spAddr] = pop16(cpu);
+  return jump(spAddr)(newCpu);
+}
+export const clearFramebuf: (cpu: CPU) => CPU =
+  Lens.fromProp<CPU>()('frameBuf').modify( (frameBuf) =>
+    copyAndSet64(0, [0x0n], frameBuf)
+  );
+
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
     return match(op)
-      .with({type: 'CLS'}, () => <CPU>{...cpu, frameBuf: new BigUint64Array(frameBufferHeight)})
+      .with({type: 'CLS'}, ()       => pipe(cpu, clearFramebuf, incrementPC))
+      .with({type: 'RET'}, ()       => pipe(cpu, ret))
+      .with({type: 'JP'} , ({addr}) => pipe(cpu, jump(addr)))
+      
       .otherwise(()=>cpu) //TODO: make this explicitly partial instead of just a nop
 }
