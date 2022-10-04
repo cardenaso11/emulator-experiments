@@ -16,11 +16,12 @@ export class Registers {
   regDT: UInt8;
   regSP: UInt8;
   regPC: UInt16;
-  constructor( regI: UInt16 = 0x0
-             , regST: UInt8 = 0x0
-             , regDT: UInt8 = 0x0
-             , regSP: UInt8 = 0x0
-             , regPC: UInt16 = 0x200) {
+  constructor
+    ( regI: UInt16 = 0x0
+    , regST: UInt8 = 0x0
+    , regDT: UInt8 = 0x0
+    , regSP: UInt8 = 0x0
+    , regPC: UInt16 = 0x200) {
     this.regI = regI;
     this.regST = regST;
     this.regDT = regDT;
@@ -29,11 +30,18 @@ export class Registers {
   }
 }
 
-export type CPU = {
-  type: "CPU";
+export class CPU {
   regs: Registers;
   mem: Memory;
   frameBuf: FrameBuffer;
+  constructor
+    ( regs: Registers = new Registers()
+    , mem: Memory = [[]]
+    , frameBuf: FrameBuffer = [[]]) {
+      this.regs = regs;
+      this.mem = mem;
+      this.frameBuf = frameBuf;
+    }
 }
 
 export type Vx = // V0 - VF
