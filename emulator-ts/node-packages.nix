@@ -22,6 +22,15 @@ let
         sha512 = "8m0XvW8kZbfnJOA4NvSVXu95mLbPf4LQGwQyqVukIYS4KzSNJiyKSmuZUmbVHteUi6MGkAJGPb0goPZqI+Tsqg==";
       };
     };
+    "monocle-ts-2.3.13" = {
+      name = "monocle-ts";
+      packageName = "monocle-ts";
+      version = "2.3.13";
+      src = fetchurl {
+        url = "https://registry.npmjs.org/monocle-ts/-/monocle-ts-2.3.13.tgz";
+        sha512 = "D5Ygd3oulEoAm3KuGO0eeJIrhFf1jlQIoEVV2DYsZUMz42j4tGxgct97Aq68+F8w4w4geEnwFa8HayTS/7lpKQ==";
+      };
+    };
     "solid-js-1.5.7" = {
       name = "solid-js";
       packageName = "solid-js";
@@ -49,6 +58,7 @@ let
     dependencies = [
       sources."csstype-3.1.1"
       sources."fp-ts-2.12.3"
+      sources."monocle-ts-2.3.13"
       sources."solid-js-1.5.7"
       sources."ts-pattern-4.0.5"
     ];
