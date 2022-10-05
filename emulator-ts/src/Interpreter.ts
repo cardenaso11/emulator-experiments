@@ -1,8 +1,8 @@
 import { match, P} from 'ts-pattern'
 import { Lens } from 'monocle-ts';
 import * as L from 'monocle-ts/Lens';
-import { identity, increment, pipe, } from 'fp-ts/lib/function';
-import { i } from 'vitest/dist/index-6e18a03a';
+import { constant, identity, increment, pipe, } from 'fp-ts/lib/function';
+import { randomInt } from 'fp-ts/lib/Random';
 
 export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
@@ -121,7 +121,7 @@ export type OpCode =
   | { type: "LD_dt_vx"; vx: Vx} // dt = Vx
   | { type: "LD_st_vx"; vx: Vx} // st = Vx
   | { type: "ADD_i_vx"; vx: Vx} // I += Vx
-  | { type: "LD_f"; vx: Vx} // I = address of sprite for digit/char stored in Vx
+  | { type: "LD_sprite"; vx: Vx} // I = address of sprite for digit/char stored in Vx
   | { type: "LD_bcd"; vx: Vx} // turn Vx into decimal, put hundreds digit at [I], tens at [I+1], ones at [I]
   | { type: "LD_save"; vx: Vx} // save registers V0 thru Vx, starting at [I]
   | { type: "LD_recall"; vx: Vx} // recall registers V0 thru Vx, starting at [I]
@@ -199,7 +199,7 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
     .with([0xF, P._, 0x1, 0x5], ([,x    ]) => <OpCode>{type: 'LD_dt_vx', vx: x.toString()})
     .with([0xF, P._, 0x1, 0x8], ([,x    ]) => <OpCode>{type: 'LD_st_vx', vx: x.toString()})
     .with([0xF, P._, 0x1, 0xE], ([,x    ]) => <OpCode>{type: 'ADD_i_vx', vx: x.toString()})
-    .with([0xF, P._, 0x2, 0x9], ([,x    ]) => <OpCode>{type: 'LD_f', vx: x.toString()})
+    .with([0xF, P._, 0x2, 0x9], ([,x    ]) => <OpCode>{type: 'LD_sprite', vx: x.toString()})
     .with([0xF, P._, 0x3, 0x3], ([,x    ]) => <OpCode>{type: 'LD_bcd', vx: x.toString()})
     .with([0xF, P._, 0x5, 0x5], ([,x    ]) => <OpCode>{type: 'LD_save', vx: x.toString()})
     .with([0xF, P._, 0x6, 0x5], ([,x    ]) => <OpCode>{type: 'LD_recall', vx: x.toString()})
@@ -247,6 +247,13 @@ export const decrementSP: (cpu: CPU) => CPU =
 // however pointers are 12bit = 2bytes wide
 // so i think longterm solution is stack gets its own separate memory
 // in the meantime however it'll just be a pointer into memory, to make things simpler
+export function regL<R extends keyof Registers>(reg: R): Lens<CPU, Registers[R]> {
+  return Lens.fromPath<CPU>()(['regs', reg]);
+}
+//export const regLens : (reg: keyof Registers) => Lens<CPU, Registers[typeof reg]> = (reg) => Lens.fromProp<CPU>()('regs').compose(Lens.fromProp<CPU>()(reg))
+//export function regLens(reg: keyof Registers): Lens<CPU, Registers[typeof reg]> {
+//  return undefined;
+//}
 
 export const read8bit: (addr: UInt8) => (cpu: CPU) => UInt8 = (addr) => (cpu) =>
   cpu.mem.at(addr)!;
@@ -309,15 +316,64 @@ export function executeOpCode(op: OpCode, cpu: CPU): CPU {
           .with(false, () => identity)
           .exhaustive()
         ))
-      .with({type: 'SE'} , ({vx, vy})    => pipe(cpu,
+      .with({type: 'SE'}  , ({vx, vy})      => pipe(cpu,
         match(cpu.regs[vx] === cpu.regs[vy])
           .with(true, () => incrementPC)
           .with(false, () => identity)
           .exhaustive()
         ))
-      .with({type: 'LD_b'} , ({vx, byte})    => pipe(cpu,
-        identity
-      ))
-      
-      .otherwise(()=>cpu) //TODO: make this explicitly partial instead of just a nop
+      .with({type: 'LD_b'}, ({vx, byte})    => pipe(cpu, regL(vx).set(byte), incrementPC))
+      .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, regL(vx).modify((r)=>r+ byte), incrementPC))
+      //TODO: IMPORTANT: clamp to 8bits
+      //TODO: IMPORTANT: handle overflow
+      .with({type: 'LD'}, ({vx, vy})        => pipe(cpu, regL(vx).set(regL(vy).get(cpu)), incrementPC))
+      .with({type: 'OR'}, ({vx, vy})        => pipe(cpu, regL(vx).modify((r)=>r | regL(vy).get(cpu)), incrementPC))
+      .with({type: 'AND'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r & regL(vy).get(cpu)), incrementPC))
+      .with({type: 'XOR'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r ^ regL(vy).get(cpu)), incrementPC))
+      .with({type: 'ADD'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r + regL(vy).get(cpu)), incrementPC))
+      //TODO: IMPORTANT: clamp to 8bits
+      //TODO: IMPORTANT: handle overflow
+      .with({type: 'SUB'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r - regL(vy).get(cpu)), incrementPC))
+      //TODO: IMPORTANT: handle overflow
+      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'SHR'}, ({vx, })         => pipe(cpu, regL(vx).modify((r)=>r >> 1), incrementPC))
+      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'SUBN'}, ({vx, vy})      => pipe(cpu, regL(vx).modify((r)=>r - regL(vy).get(cpu)), incrementPC))
+      //TODO: IMPORTANT: clamp to 8bits
+      //TODO: IMPORTANT: handle overflow
+      .with({type: 'SHL'}, ({vx, })         => pipe(cpu, regL(vx).modify((r)=>r << 1), incrementPC))
+      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'SNE'}  , ({vx, vy})      => pipe(cpu,
+        match(cpu.regs[vx] !== cpu.regs[vy])
+          .with(true, () => incrementPC)
+          .with(false, () => identity)
+          .exhaustive()
+        ))
+      .with({type: 'LD_i'}, ({addr})        => pipe(cpu, regL('i').set(addr), incrementPC))
+      .with({type: 'JP_v0'}   , ({addr})     => pipe(cpu, jump(addr+regL('V0').get(cpu))))
+      .with({type: 'RND'} , ({vx, byte})     => pipe(cpu, regL(vx).set(randomInt(0, 0xFFFF)() & byte)))
+      .with({type: 'DRW'}, ({vx, vy, nibble})=> pipe(cpu, identity))
+      //TODO: IMPORTANT: drawing unimplemented
+      .with({type: 'SKP'}, ({vx})=> pipe(cpu, identity))
+      //TODO: IMPORTANAT: keyboard unimplemented
+      .with({type: 'SKNP'}, ({vx})=> pipe(cpu, identity))
+      //TODO: IMPORTANAT: keyboard unimplemented
+      .with({type: 'LD_vx_dt'}, ({vx})        => pipe(cpu, regL(vx).set(regL('dt').get(cpu)), incrementPC))
+      .with({type: 'LD_k'}, ({vx})=> pipe(cpu, identity))
+      //TODO: IMPORTANAT: keyboard unimplemented
+      .with({type: 'LD_dt_vx'}, ({vx})        => pipe(cpu, regL('dt').set(regL(vx).get(cpu)), incrementPC))
+      .with({type: 'LD_st_vx'}, ({vx})        => pipe(cpu, regL('st').set(regL(vx).get(cpu)), incrementPC))
+      .with({type: 'ADD_i_vx'}, ({vx})       => pipe(cpu, regL('i').modify((i)=>i + regL(vx).get(cpu)), incrementPC))
+      //TODO: IMPORTANT: handle overflow
+      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'LD_sprite'}, ({vx})=> pipe(cpu, identity))
+      //TODO: IMPORTANT: drawing unimplemented
+      .with({type: 'LD_bcd'}, ({vx}) => pipe(cpu, identity))
+      //TODO: unimplemented
+      .with({type: 'LD_save'}, ({vx}) => pipe(cpu, identity))
+      //TODO: unimplemented
+      .with({type: 'LD_recall'}, ({vx}) => pipe(cpu, identity))
+      //TODO: unimplemented
+
+      .otherwise(constant(cpu)) //TODO: make this explicitly partial instead of just a nop
 }
