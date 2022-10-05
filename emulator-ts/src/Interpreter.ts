@@ -358,7 +358,7 @@ export const memAtReg: At<CPU, keyof Registers, UInt8> = new At(readRegL);
 
 export const push16: (val: UInt16) => (cpu: CPU) => CPU = (val) =>(cpu)=>
   pipe( cpu
-      , Lens.fromProp<CPU>()('mem').modify( (mem) =>
+      , memL.modify( (mem) =>
           writeBytes(cpu.regs.sp, split16BitBy2(val), cpu))
       , incrementSP
       );
@@ -384,7 +384,7 @@ export const clearFramebuf: (cpu: CPU) => CPU =
     copyAndSet64(0, [0x0n], frameBuf)
   );
 
-export const recallRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
+export const recallRegisters: (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
   const registersToRecall: Vx[] =
     range(vxToNum['V0'], vxToNum[vx]).map((v)=>numToVx[v]);
   const byteAtOffsetFromI: (offset: number) => UInt8 = (offset) => 
@@ -397,7 +397,7 @@ export const recallRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
     )(cpu);
 }
 
-export const saveRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
+export const saveRegisters: (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
   const registersToSave: Vx[] =
     range(vxToNum['V0'], vxToNum[vx]).map((v)=>numToVx[v]);
   const addressWithOffset: (offset: number) => UInt8 = (offset) => 
@@ -412,6 +412,13 @@ export const saveRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
 
 export const incrementI: (vx: Vx) => (cpu: CPU) => CPU = (vx)=>
   regL('i').modify((i)=> i+vxToNum[vx]+1);
+
+export const toBCD: (x: UInt8) => [UInt8, UInt8, UInt8] = (x) =>
+  [Math.trunc(x/100), Math.trunc(x/10) % 10, x % 10];
+
+export const storeBCDatI: (vx: Vx) => (cpu: CPU) => CPU = (vx) => (cpu)=> {
+  return memL.set(writeBytes( regL('i').get(cpu), toBCD( regL(vx).get(cpu)), cpu))(cpu);
+}
 
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
@@ -485,8 +492,7 @@ export function executeOpCode(op: OpCode, cpu: CPU): CPU {
       //TODO: IMPORTANT: clamp to 8bits
       .with({type: 'LD_sprite'}, ({vx})=> pipe(cpu, identity))
       //TODO: IMPORTANT: drawing unimplemented
-      .with({type: 'LD_bcd'}, ({vx}) => pipe(cpu, identity))
-      //TODO: unimplemented
+      .with({type: 'LD_bcd'}, ({vx}) => pipe(cpu, storeBCDatI(vx)))
       .with({type: 'LD_save'}, ({vx}) => pipe(cpu, saveRegisters(vx), incrementI(vx), incrementPC))
       .with({type: 'LD_recall'}, ({vx}) => pipe(cpu, recallRegisters(vx), incrementI(vx), incrementPC))
 
