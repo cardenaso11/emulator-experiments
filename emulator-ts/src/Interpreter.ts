@@ -1,7 +1,7 @@
 import { match, P} from 'ts-pattern'
 import { Lens } from 'monocle-ts';
 import * as L from 'monocle-ts/Lens';
-import { increment, pipe, } from 'fp-ts/lib/function';
+import { identity, increment, pipe, } from 'fp-ts/lib/function';
 import { i } from 'vitest/dist/index-6e18a03a';
 
 export type UInt4 = number; // 4 bit uint, unenforced
@@ -15,22 +15,45 @@ export const frameBufferHeight = 32;
 
 type Hz = number;
 
+export const newMemory: () => Memory = () => new Uint8Array(memoryLength);
+
+
 export function newRegisters
   ( i: UInt16 = 0
   , st: UInt8 = 0
   , dt: UInt8 = 0
   , sp: UInt8 = 0 // for now SP will be a memory ptr, but itd be worht it to make stack separate from memory
-  , pc: UInt16 = 0x200) {
-    return {i, st, dt, sp, pc};
+  , pc: UInt16 = 0x200
+  , V0: UInt8 = 0
+  , V1: UInt8 = 0
+  , V2: UInt8 = 0
+  , V3: UInt8 = 0
+  , V4: UInt8 = 0
+  , V5: UInt8 = 0
+  , V6: UInt8 = 0
+  , V7: UInt8 = 0
+  , V8: UInt8 = 0
+  , V9: UInt8 = 0
+  , VA: UInt8 = 0
+  , VB: UInt8 = 0
+  , VC: UInt8 = 0
+  , VD: UInt8 = 0
+  , VE: UInt8 = 0
+  , VF: UInt8 = 0
+  ): Registers{
+    return { i, st, dt, sp, pc, V0, V1, V2, V3, V4, V5, V6, V7, V8, V9,
+             VA, VB, VC, VD, VE, VF};
 };
 
 export type Registers = {
-  i: UInt16;
-  st: UInt8;
-  dt: UInt8;
-  sp: UInt8;
-  pc: UInt16;
-}
+    [key in Vx]: UInt8;
+} & {
+    i: UInt16;
+    st: UInt8;
+    dt: UInt8;
+    sp: UInt8;
+    pc: UInt16;
+};
 
 export function newCPU
     ( regs: Registers = newRegisters()
@@ -188,10 +211,10 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
 //export function copyAndSet<T, S extends RelativeIndexable<T>>(array: S, val: [T], loc: number): S {
 //  new S()
 //};
-export function copyAndSet8(loc: number, vals: UInt8[], array: Uint8Array): Uint8Array {
-  let newArray = new Uint8Array(array);
-  newArray.set(vals, loc);
-  return newArray;
+export function write8(loc: number, vals: UInt8[], array: Uint8Array): Uint8Array {
+  let newMem = newMemory();
+  newMem.set(vals, loc);
+  return newMem;
 };
 
 export function copyAndSet64(loc: number, vals: bigint[], array: BigUint64Array) : BigUint64Array {
@@ -225,10 +248,23 @@ export const decrementSP: (cpu: CPU) => CPU =
 // so i think longterm solution is stack gets its own separate memory
 // in the meantime however it'll just be a pointer into memory, to make things simpler
 
+export const read8bit: (addr: UInt8) => (cpu: CPU) => UInt8 = (addr) => (cpu) =>
+  cpu.mem.at(addr)!;
+
+export const read16bit: (addr: UInt16) => (cpu: CPU) => UInt16 = (addr) => (cpu) =>
+  combine2Bytes([cpu.mem.at(addr)!, cpu.mem.at(addr)!]);
+
+export const write16bit: (addr: UInt16) => (val: UInt16) => (cpu: CPU) => CPU = (addr)=>(val)=>(cpu)=> {
+  const newMem = new Uint8Array(cpu.mem);
+  newMem.set(split16BitBy2(val), addr);
+
+  return Lens.fromProp<CPU>()('mem').set(newMem)(cpu);
+}
+
 export const push16: (val: UInt16) => (cpu: CPU) => CPU = (val) =>(cpu)=>
   pipe( cpu
       , Lens.fromProp<CPU>()('mem').modify( (mem) =>
-          copyAndSet8(cpu.regs.sp, split16BitBy2(val), mem))
+          write8(cpu.regs.sp, split16BitBy2(val), mem))
       , incrementSP
       );
 
@@ -256,9 +292,32 @@ export const clearFramebuf: (cpu: CPU) => CPU =
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
     return match(op)
-      .with({type: 'CLS'}, ()       => pipe(cpu, clearFramebuf, incrementPC))
-      .with({type: 'RET'}, ()       => pipe(cpu, ret))
-      .with({type: 'JP'} , ({addr}) => pipe(cpu, jump(addr)))
+      .with({type: 'SYS'}  , ()           => pipe(cpu, identity)) //unimplemented in modern implementations
+      .with({type: 'CLS'}  , ()           => pipe(cpu, clearFramebuf, incrementPC))
+      .with({type: 'RET'}  , ()           => pipe(cpu, ret))
+      .with({type: 'JP'}   , ({addr})     => pipe(cpu, jump(addr)))
+      .with({type: 'CALL'} , ({addr})     => pipe(cpu, call(addr)))
+      .with({type: 'SE_b'} , ({vx, byte}) => pipe(cpu,
+        match(cpu.regs[vx] === byte)
+          .with(true, () => incrementPC)
+          .with(false, () => identity)
+          .exhaustive()
+        ))
+      .with({type: 'SNE_b'} , ({vx, byte}) => pipe(cpu,
+        match(cpu.regs[vx] !== byte)
+          .with(true, () => incrementPC)
+          .with(false, () => identity)
+          .exhaustive()
+        ))
+      .with({type: 'SE'} , ({vx, vy})    => pipe(cpu,
+        match(cpu.regs[vx] === cpu.regs[vy])
+          .with(true, () => incrementPC)
+          .with(false, () => identity)
+          .exhaustive()
+        ))
+      .with({type: 'LD_b'} , ({vx, byte})    => pipe(cpu,
+        identity
+      ))
       
       .otherwise(()=>cpu) //TODO: make this explicitly partial instead of just a nop
 }
