@@ -1,8 +1,15 @@
 import { match, P} from 'ts-pattern'
-import { Lens } from 'monocle-ts';
+import { At, lens, Lens } from 'monocle-ts';
 import * as L from 'monocle-ts/Lens';
 import { constant, identity, increment, pipe, } from 'fp-ts/lib/function';
+import * as S from 'fp-ts/lib/Set'
+import * as STR from 'fp-ts/lib/string'
+import * as E from 'fp-ts/lib/Eq'
+import * as A from 'fp-ts/lib/Array'
+import * as EN from 'fp-ts/lib/Endomorphism'
+import * as M from 'fp-ts/lib/Monoid'
 import { randomInt } from 'fp-ts/lib/Random';
+import { range } from 'fp-ts/lib/NonEmptyArray';
 
 export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
@@ -16,6 +23,12 @@ export const frameBufferHeight = 32;
 type Hz = number;
 
 export const newMemory: () => Memory = () => new Uint8Array(memoryLength);
+//export const allRegs: Set<string> = S.fromArray(STR.Eq)(Object.keys(newRegisters()));
+//export const allVxRegs: Set<string> = S.filter((regS: string) => regS[0] === "V")(allRegs);
+export const allRegs: string[] = Object.keys(newRegisters());
+export const allVxRegs: string[] =
+  [ "V0" , "V1" , "V2" , "V3" , "V4" , "V5" , "V6" , "V7" , "V8" , "V9" , "VA"
+  , "VB" , "VC" , "VD" , "VE" , "VF"]
 
 
 export function newRegisters
@@ -66,6 +79,53 @@ export type CPU = {
   regs: Registers;
   mem: Memory;
   frameBuf: FrameBuffer;
+}
+
+//TODO: figure out some kind of bijective map? unimportant
+export type VxToNum = {
+  [key in Vx]: UInt8
+}
+
+export type NumToVx = {
+  [ke: UInt8]: Vx;
+}
+
+export const vxToNum: VxToNum = {
+   "V0": 0x0,
+   "V1": 0x1,
+   "V2": 0x2,
+   "V3": 0x3,
+   "V4": 0x4,
+   "V5": 0x5,
+   "V6": 0x6,
+   "V7": 0x7,
+   "V8": 0x8,
+   "V9": 0x9,
+   "VA": 0xA,
+   "VB": 0xB,
+   "VC": 0xC,
+   "VD": 0xD,
+   "VE": 0xE,
+   "VF": 0xF
+}
+
+export const numToVx: NumToVx = {
+   0x0: "V0" ,
+   0x1: "V1" ,
+   0x2: "V2" ,
+   0x3: "V3" ,
+   0x4: "V4" ,
+   0x5: "V5" ,
+   0x6: "V6" ,
+   0x7: "V7" ,
+   0x8: "V8" ,
+   0x9: "V9" ,
+   0xA: "VA" ,
+   0xB: "VB" ,
+   0xC: "VC" ,
+   0xD: "VD" ,
+   0xE: "VE" ,
+   0xF: "VF" 
 }
 
 export type Vx = // V0 - VF
@@ -211,17 +271,39 @@ export function decodeOpCode(encoded: UInt16): OpCode | undefined {
 //export function copyAndSet<T, S extends RelativeIndexable<T>>(array: S, val: [T], loc: number): S {
 //  new S()
 //};
-export function write8(loc: number, vals: UInt8[], array: Uint8Array): Uint8Array {
-  let newMem = newMemory();
+export function writeBytes(loc: number, vals: UInt8[], cpu: CPU): Uint8Array {
+  let newMem = new Uint8Array(cpu.mem);
   newMem.set(vals, loc);
   return newMem;
 };
+
+export function readBytesMem(loc: number, count: number, cpu: CPU): Uint8Array {
+  return cpu.mem.subarray(loc, loc+count)
+}
 
 export function copyAndSet64(loc: number, vals: bigint[], array: BigUint64Array) : BigUint64Array {
   let newArray = new BigUint64Array(array);
   newArray.set(vals, loc);
   return newArray;
 };
+
+export const read8bit: (addr: UInt8) => (cpu: CPU) => UInt8 = (addr) => (cpu) =>
+  cpu.mem.at(addr)!;
+
+export const write8bit: (addr: UInt8) => (val: UInt8) => (cpu: CPU) => CPU = (addr)=>(val)=>(cpu)=>
+  Lens.fromProp<CPU>()('mem').set(writeBytes(addr, [val], cpu))(cpu)
+
+export const read16bit: (addr: UInt16) => (cpu: CPU) => UInt16 = (addr) => (cpu) =>
+  combine2Bytes([cpu.mem.at(addr)!, cpu.mem.at(addr)!]);
+
+export const write16bit: (addr: UInt16) => (val: UInt16) => (cpu: CPU) => CPU = (addr)=>(val)=>(cpu)=> {
+  const newMem = new Uint8Array(cpu.mem);
+  newMem.set(split16BitBy2(val), addr);
+
+  return Lens.fromProp<CPU>()('mem').set(newMem)(cpu);
+}
+
+
 
 export function getPC(cpu: CPU): Registers['pc'] {
   return Lens.fromPath<CPU>()(['regs', 'pc']).get(cpu);
@@ -247,31 +329,37 @@ export const decrementSP: (cpu: CPU) => CPU =
 // however pointers are 12bit = 2bytes wide
 // so i think longterm solution is stack gets its own separate memory
 // in the meantime however it'll just be a pointer into memory, to make things simpler
+export const memL: Lens<CPU, Memory> = Lens.fromProp<CPU>()('mem')
+
+export function readMemL(addr: UInt16): Lens<CPU, UInt8> {
+  const getter: (cpu: CPU) => UInt8 = read8bit(addr)
+  const setter: (byte: UInt8) => (cpu: CPU) => CPU = (byte)=> write8bit(addr)(byte)
+  return new Lens(getter, setter);
+}
+
+export const memAtL: At<CPU, UInt16, UInt8> = new At(readMemL);
+
 export function regL<R extends keyof Registers>(reg: R): Lens<CPU, Registers[R]> {
   return Lens.fromPath<CPU>()(['regs', reg]);
 }
+
+export function readRegL<R extends keyof Registers>(reg: R): Lens<CPU, UInt8> {
+  const getter: (cpu: CPU)=> UInt8 = (cpu)=> read8bit(regL(reg).get(cpu))(cpu)
+  const setter: (byte: UInt8) => (cpu: CPU) => CPU = (byte)=>(cpu)=> write8bit(regL(reg).get(cpu))(byte)(cpu)
+  return new Lens(getter, setter);
+}
+
+export const memAtReg: At<CPU, keyof Registers, UInt8> = new At(readRegL);
 //export const regLens : (reg: keyof Registers) => Lens<CPU, Registers[typeof reg]> = (reg) => Lens.fromProp<CPU>()('regs').compose(Lens.fromProp<CPU>()(reg))
 //export function regLens(reg: keyof Registers): Lens<CPU, Registers[typeof reg]> {
 //  return undefined;
 //}
 
-export const read8bit: (addr: UInt8) => (cpu: CPU) => UInt8 = (addr) => (cpu) =>
-  cpu.mem.at(addr)!;
-
-export const read16bit: (addr: UInt16) => (cpu: CPU) => UInt16 = (addr) => (cpu) =>
-  combine2Bytes([cpu.mem.at(addr)!, cpu.mem.at(addr)!]);
-
-export const write16bit: (addr: UInt16) => (val: UInt16) => (cpu: CPU) => CPU = (addr)=>(val)=>(cpu)=> {
-  const newMem = new Uint8Array(cpu.mem);
-  newMem.set(split16BitBy2(val), addr);
-
-  return Lens.fromProp<CPU>()('mem').set(newMem)(cpu);
-}
 
 export const push16: (val: UInt16) => (cpu: CPU) => CPU = (val) =>(cpu)=>
   pipe( cpu
       , Lens.fromProp<CPU>()('mem').modify( (mem) =>
-          write8(cpu.regs.sp, split16BitBy2(val), mem))
+          writeBytes(cpu.regs.sp, split16BitBy2(val), cpu))
       , incrementSP
       );
 
@@ -295,6 +383,35 @@ export const clearFramebuf: (cpu: CPU) => CPU =
   Lens.fromProp<CPU>()('frameBuf').modify( (frameBuf) =>
     copyAndSet64(0, [0x0n], frameBuf)
   );
+
+export const recallRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
+  const registersToRecall: Vx[] =
+    range(vxToNum['V0'], vxToNum[vx]).map((v)=>numToVx[v]);
+  const byteAtOffsetFromI: (offset: number) => UInt8 = (offset) => 
+    read8bit(regL('i').get(cpu) + offset)(cpu);
+
+  return pipe(
+    registersToRecall,
+    A.mapWithIndex((index, reg) => regL(reg).set(byteAtOffsetFromI(index))),
+    M.concatAll(EN.getMonoid())
+    )(cpu);
+}
+
+export const saveRegisters : (vx: Vx) => (cpu: CPU) => CPU = (vx)=>(cpu)=>{
+  const registersToSave: Vx[] =
+    range(vxToNum['V0'], vxToNum[vx]).map((v)=>numToVx[v]);
+  const addressWithOffset: (offset: number) => UInt8 = (offset) => 
+    regL('i').get(cpu) + offset
+
+  return pipe(
+    registersToSave,
+    A.mapWithIndex((index, reg) => memAtL.at( addressWithOffset(index) ).set(regL(reg).get(cpu))),
+    M.concatAll(EN.getMonoid())
+    )(cpu);
+}
+
+export const incrementI: (vx: Vx) => (cpu: CPU) => CPU = (vx)=>
+  regL('i').modify((i)=> i+vxToNum[vx]+1);
 
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
@@ -370,10 +487,8 @@ export function executeOpCode(op: OpCode, cpu: CPU): CPU {
       //TODO: IMPORTANT: drawing unimplemented
       .with({type: 'LD_bcd'}, ({vx}) => pipe(cpu, identity))
       //TODO: unimplemented
-      .with({type: 'LD_save'}, ({vx}) => pipe(cpu, identity))
-      //TODO: unimplemented
-      .with({type: 'LD_recall'}, ({vx}) => pipe(cpu, identity))
-      //TODO: unimplemented
+      .with({type: 'LD_save'}, ({vx}) => pipe(cpu, saveRegisters(vx), incrementI(vx), incrementPC))
+      .with({type: 'LD_recall'}, ({vx}) => pipe(cpu, recallRegisters(vx), incrementI(vx), incrementPC))
 
       .otherwise(constant(cpu)) //TODO: make this explicitly partial instead of just a nop
 }
