@@ -430,10 +430,10 @@ export const storeBCDatI: (vx: Vx) => (cpu: CPU) => CPU = (vx) => (cpu)=> {
 //   Math.abs(x)&0xFF
 
 export const add8bitWithOverflow: (x: UInt8)=>(y: UInt8)=>[z: UInt8, overflow: boolean] = (x)=>(y)=>
-  [(x+y)%0xFF, !!((x+y)&0x100)];
+  [(x+y)&0xFF, !!((x+y)&0x100)];
 
 export const sub8bitWithUnderflow: (x: UInt8)=>(y: UInt8)=>[z: UInt8, overflow: boolean] = (x)=>(y)=>
-  [Math.abs((x-y)%0xFF), !!((x+y)&0x100)];
+  [Math.abs((x-y)&0xFF), !!((x+y)&0x100)];
 
 export const addAndSetVf: (vx: Vx) => (y: UInt8) => (cpu: CPU) => CPU = (vx) => (y) => (cpu) => {
   const [vxVal, vfVal] = add8bitWithOverflow(regL(vx).get(cpu))(y)
@@ -448,6 +448,14 @@ export const subAndSetVf: (vx: Vx) => (y: UInt8) => (cpu: CPU) => CPU = (vx) => 
   return pipe(cpu,
     regL(vx).set(vxVal),
     regL('VF').set(Number(vfVal))
+    )
+}
+
+export const subNAndSetVf: (vx: Vx) => (y: UInt8) => (cpu: CPU) => CPU = (vx) => (y) => (cpu) => {
+  const [vxVal, vfVal] = sub8bitWithUnderflow(regL(vx).get(cpu))(y)
+  return pipe(cpu,
+    regL(vx).set(vxVal),
+    regL('VF').set(Number(!vfVal))
     )
 }
 
@@ -478,27 +486,16 @@ export function executeOpCode(op: OpCode, cpu: CPU): CPU {
           .exhaustive()
         ))
       .with({type: 'LD_b'}, ({vx, byte})    => pipe(cpu, regL(vx).set(byte), incrementPC))
-      // .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, regL(vx).modify((r)=>r+ byte), incrementPC))
       .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, addAndSetVf(vx)(byte), incrementPC))
-      //TODO: IMPORTANT: clamp to 8bits
-      //TODO: IMPORTANT: handle overflow
       .with({type: 'LD'}, ({vx, vy})        => pipe(cpu, regL(vx).set(regL(vy).get(cpu)), incrementPC))
       .with({type: 'OR'}, ({vx, vy})        => pipe(cpu, regL(vx).modify((r)=>r | regL(vy).get(cpu)), incrementPC))
       .with({type: 'AND'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r & regL(vy).get(cpu)), incrementPC))
       .with({type: 'XOR'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r ^ regL(vy).get(cpu)), incrementPC))
-      .with({type: 'ADD'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r + regL(vy).get(cpu)), incrementPC))
-      //TODO: IMPORTANT: clamp to 8bits
-      //TODO: IMPORTANT: handle overflow
-      .with({type: 'SUB'}, ({vx, vy})       => pipe(cpu, regL(vx).modify((r)=>r - regL(vy).get(cpu)), incrementPC))
-      //TODO: IMPORTANT: handle overflow
-      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'ADD'}, ({vx, vy})       => pipe(cpu, addAndSetVf(vx)(regL(vy).get(cpu)), incrementPC))
+      .with({type: 'SUB'}, ({vx, vy})       => pipe(cpu, subAndSetVf(vx)(regL(vy).get(cpu)), incrementPC))
       .with({type: 'SHR'}, ({vx, })         => pipe(cpu, regL(vx).modify((r)=>r >> 1), incrementPC))
-      //TODO: IMPORTANT: clamp to 8bits
-      .with({type: 'SUBN'}, ({vx, vy})      => pipe(cpu, regL(vx).modify((r)=>r - regL(vy).get(cpu)), incrementPC))
-      //TODO: IMPORTANT: clamp to 8bits
-      //TODO: IMPORTANT: handle overflow
-      .with({type: 'SHL'}, ({vx, })         => pipe(cpu, regL(vx).modify((r)=>r << 1), incrementPC))
-      //TODO: IMPORTANT: clamp to 8bits
+      .with({type: 'SUBN'}, ({vx, vy})      => pipe(cpu, subNAndSetVf(vx)(regL(vy).get(cpu)), incrementPC))
+      .with({type: 'SHL'}, ({vx, })         => pipe(cpu, regL(vx).modify((r)=>(r << 1)&0xFF), incrementPC))
       .with({type: 'SNE'}  , ({vx, vy})      => pipe(cpu,
         match(cpu.regs[vx] !== cpu.regs[vy])
           .with(true, () => incrementPC)

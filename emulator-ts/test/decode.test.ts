@@ -1,7 +1,7 @@
 import * as L from 'monocle-ts/Lens';
 import { increment, pipe } from 'fp-ts/lib/function';
-import { assert, expect, test } from 'vitest';
-import {decodeOpCode, OpCode, combine2Nibbles, combine3Nibbles, executeOpCode, CPU, Registers, frameBufferHeight, FrameBuffer, incrementPC, newCPU, newRegisters} from '../src/Interpreter';
+import { assert, describe, expect, it, test } from 'vitest';
+import {decodeOpCode, OpCode, combine2Nibbles, combine3Nibbles, executeOpCode, CPU, Registers, frameBufferHeight, FrameBuffer, incrementPC, newCPU, newRegisters, regL} from '../src/Interpreter';
 
 test('decode opcode', () => {
   expect(decodeOpCode(0x00E0)).toStrictEqual({type: 'CLS'});
@@ -47,3 +47,27 @@ test('combine nibbles', () => {
   expect(combine2Nibbles([0x0,0x2])).toStrictEqual(0x02);
   expect(combine3Nibbles([0x9,0x8,0x7])).toStrictEqual(0x987);
 });
+
+describe("addition", () => {
+  it("handles overflow", () => {
+    const cpu: CPU = pipe(newCPU(),
+      regL('V0').set(0xFF),
+      regL('V1').set(0x1)
+    );
+    const add_cpu = executeOpCode({'type':'ADD', vx: 'V0', vy: 'V1'}, cpu)
+    expect(regL('V0').get(add_cpu)).toEqual(0x0)
+  });
+})
+
+test('add and sub are inverses', (ctx) => {
+  const cpu: CPU = pipe(newCPU(),
+    regL('V0').set(0x2),
+    regL('V1').set(0xFF)
+  );
+  const add_cpu = pipe(cpu,
+    c=>executeOpCode({'type': 'ADD', vx: 'V0', vy: 'V1'},c),
+    c=>executeOpCode({'type': 'SUB', vx: 'V0', vy: 'V1'}, c)
+    )
+  const sub_cpu = executeOpCode({'type': 'ADD_b', vx: 'V0', byte: 1}, cpu);
+  expect(regL('V0').get(add_cpu)).toStrictEqual(regL('V0').get(cpu))
+})
