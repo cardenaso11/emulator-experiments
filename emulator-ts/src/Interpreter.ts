@@ -10,6 +10,8 @@ import * as EN from 'fp-ts/lib/Endomorphism'
 import * as M from 'fp-ts/lib/Monoid'
 import { randomInt } from 'fp-ts/lib/Random';
 import { range } from 'fp-ts/lib/NonEmptyArray';
+import { indexNonEmpty } from 'monocle-ts/lib/Traversal';
+import * as TUP from 'fp-ts/Tuple'
 
 export type UInt4 = number; // 4 bit uint, unenforced
 export type UInt8 = number; // 8 bit uint, unenforced
@@ -420,6 +422,35 @@ export const storeBCDatI: (vx: Vx) => (cpu: CPU) => CPU = (vx) => (cpu)=> {
   return memL.set(writeBytes( regL('i').get(cpu), toBCD( regL(vx).get(cpu)), cpu))(cpu);
 }
 
+// do this by hand for now, taking advantage of javascripts 53 bit integers
+// not sure how good performance is, if it's mediocre go with https://github.com/stdlib-js/constants-int8
+// could also convert overflow to number and then just `or` that into vf
+// or do whatever typescript calls unsafeCoerce
+// export const clampTo8bitWithOverflow: (x: UInt8)=>[z: UInt8, overflow: boolean] = (x)=>(y)=>
+//   Math.abs(x)&0xFF
+
+export const add8bitWithOverflow: (x: UInt8)=>(y: UInt8)=>[z: UInt8, overflow: boolean] = (x)=>(y)=>
+  [(x+y)%0xFF, !!((x+y)&0x100)];
+
+export const sub8bitWithUnderflow: (x: UInt8)=>(y: UInt8)=>[z: UInt8, overflow: boolean] = (x)=>(y)=>
+  [Math.abs((x-y)%0xFF), !!((x+y)&0x100)];
+
+export const addAndSetVf: (vx: Vx) => (y: UInt8) => (cpu: CPU) => CPU = (vx) => (y) => (cpu) => {
+  const [vxVal, vfVal] = add8bitWithOverflow(regL(vx).get(cpu))(y)
+  return pipe(cpu,
+    regL(vx).set(vxVal),
+    regL('VF').set(Number(vfVal))
+    )
+}
+
+export const subAndSetVf: (vx: Vx) => (y: UInt8) => (cpu: CPU) => CPU = (vx) => (y) => (cpu) => {
+  const [vxVal, vfVal] = sub8bitWithUnderflow(regL(vx).get(cpu))(y)
+  return pipe(cpu,
+    regL(vx).set(vxVal),
+    regL('VF').set(Number(vfVal))
+    )
+}
+
 // not sure how good javascript immutability performance is, this is likely to need a second draft
 export function executeOpCode(op: OpCode, cpu: CPU): CPU {
     return match(op)
@@ -447,7 +478,8 @@ export function executeOpCode(op: OpCode, cpu: CPU): CPU {
           .exhaustive()
         ))
       .with({type: 'LD_b'}, ({vx, byte})    => pipe(cpu, regL(vx).set(byte), incrementPC))
-      .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, regL(vx).modify((r)=>r+ byte), incrementPC))
+      // .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, regL(vx).modify((r)=>r+ byte), incrementPC))
+      .with({type: 'ADD_b'}, ({vx, byte})   => pipe(cpu, addAndSetVf(vx)(byte), incrementPC))
       //TODO: IMPORTANT: clamp to 8bits
       //TODO: IMPORTANT: handle overflow
       .with({type: 'LD'}, ({vx, vy})        => pipe(cpu, regL(vx).set(regL(vy).get(cpu)), incrementPC))
